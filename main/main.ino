@@ -8,7 +8,7 @@
 const char* ssid = "OpenSesame";
 const char* password = "12345678";
 
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+LiquidCrystal_I2C lcd(0x3F, 16, 2);
 #define SS_PIN 5    
 #define RST_PIN 27  
 
@@ -18,7 +18,6 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
-// Define endpoints for keeping or releasing the booking
 const char* server = "http://192.168.27.229:8080";
 
 void setup() {
@@ -27,16 +26,15 @@ void setup() {
   rfid.PCD_Init();
   lcd.init();       
   lcd.backlight();
-  lcd.setCursor(3, 0);
-  lcd.print("Hello, world!");
   connectWiFi();
 
-    // Set up button pins as input with pull-up resistors
   pinMode(YES_BUTTON_PIN, INPUT_PULLUP);
   pinMode(NO_BUTTON_PIN, INPUT_PULLUP);
 }
 
 void loop() {
+
+  displayMessage("To book locker","Place card here");
   if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {  
     String uid = getUID();
     
@@ -54,6 +52,7 @@ void loop() {
     rfid.PICC_HaltA();       
     rfid.PCD_StopCrypto1();  
   }
+    delay(1000);
 }
 
 // Connect to WiFi
@@ -93,8 +92,6 @@ String sendBookingRequest(String uid) {
     Serial.print("HTTP Response code: ");
     Serial.println(httpResponseCode);
     payload = http.getString();
-    Serial.println("Response payload: ");
-    Serial.println(payload);
   } else {
     Serial.print("Error on sending POST: ");
     Serial.println(httpResponseCode);
@@ -130,7 +127,6 @@ void processBookingResponse(String response, String uid) {
 
 void handleExistingBooking(String userId) {
   displayMessage("Booking exists.", "Keep or release?");
-  delay(5000);  // Simulate user response wait time
 
   // Wait for button press
   bool userChoice = false;
@@ -145,13 +141,12 @@ void handleExistingBooking(String userId) {
     delay(50); // Add small delay for debounce
   }
 
+  displayMessage(userChoice ? "Booking kept." : "Booking released.", "");
+
   String endpoint = userChoice ? "/keepBooking/" : "/cancelBooking/";
   endpoint += userId;
-  int responseCode = sendUserChoice(endpoint.c_str());  // Convert to const char*
   
-  Serial.print("User choice response code: ");
-  Serial.println(responseCode);
-  displayMessage(userChoice ? "Booking kept." : "Booking released.", "");
+  int responseCode = sendUserChoice(endpoint.c_str());  // Convert to const char*
 }
 
 
@@ -174,11 +169,6 @@ void displayError(String message) {
 
 // Display message on LCD
 void displayMessage(String line1, String line2) {
-  Serial.println("----------------");
-  Serial.println(line1);
-  Serial.println(line2);
-  Serial.println("----------------");
-  Serial.println("");
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print(line1);
