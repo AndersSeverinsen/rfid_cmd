@@ -3,6 +3,7 @@
 #include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
 
 const char* ssid = "OpenSesame";
 const char* password = "12345678";
@@ -13,16 +14,44 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
+// Define endpoints for keeping or releasing the booking
+const char* server = "http://192.168.27.229:8080";
+
 void setup() {
   Serial.begin(9600);
   SPI.begin();
   rfid.PCD_Init();
   lcd.init();       
   lcd.backlight();
-  lcd.setCursor(3,0);
+  lcd.setCursor(3, 0);
   lcd.print("Hello, world!");
+  connectWiFi();
+}
+
+void loop() {
+  if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {  
+    String uid = getUID();
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      String response = sendBookingRequest(uid);
+      if (!response.isEmpty()) {
+        processBookingResponse(response, uid);
+      } else {
+        displayError("POST failed");
+      }
+    } else {
+      displayError("WiFi lost!");
+    }
+
+    rfid.PICC_HaltA();       
+    rfid.PCD_StopCrypto1();  
+  }
+}
+
+// Connect to WiFi
+void connectWiFi() {
   WiFi.begin(ssid, password);
-  Serial.println("Connecting");
+  Serial.println("Connecting to WiFi");
   while(WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
@@ -30,55 +59,111 @@ void setup() {
   Serial.println("\nConnected to WiFi!");
 }
 
-void loop() {
-  if (rfid.PICC_IsNewCardPresent()) {  
-    if (rfid.PICC_ReadCardSerial()) {  
-      String uid = "";
-      for (int i = 0; i < rfid.uid.size; i++) {
-        uid += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
-        uid += String(rfid.uid.uidByte[i], HEX);
-      }
-      
-      if(WiFi.status() == WL_CONNECTED){
-        WiFiClient client;
-        HTTPClient http;
-        String serverName = "http://192.168.27.229:8080/book/" + uid;
-        http.begin(client, serverName.c_str());
-        
-        int httpResponseCode = http.POST("");
-        
-        if (httpResponseCode > 0) {
-          Serial.print("HTTP Response code: ");
-          Serial.println(httpResponseCode);
-
-          String payload = http.getString();
-          Serial.println("Response payload: ");
-          Serial.println(payload);
-
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("Server says:");
-          lcd.setCursor(0, 1);
-          lcd.print(payload); 
-          
-        } else {
-          Serial.print("Error on sending POST: ");
-          Serial.println(httpResponseCode);
-          lcd.clear();
-          lcd.setCursor(0, 0);
-          lcd.print("POST failed");
-        }
-
-        http.end();
-      } else {
-        Serial.println("WiFi Disconnected");
-        lcd.clear();
-        lcd.setCursor(0, 0);
-        lcd.print("WiFi lost!");
-      }
-
-      rfid.PICC_HaltA();       
-      rfid.PCD_StopCrypto1();  
-    }
+// Extract UID from RFID card
+String getUID() {
+  String uid = "";
+  for (int i = 0; i < rfid.uid.size; i++) {
+    uid += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
+    uid += String(rfid.uid.uidByte[i], HEX);
   }
+  Serial.print("UID: ");
+  Serial.println(uid);
+  return uid;
+}
+
+// Send booking request and get response
+String sendBookingRequest(String uid) {
+  WiFiClient client;
+  HTTPClient http;
+  String serverName = String(server) + "/book/" + uid;
+  http.begin(client, serverName.c_str());
+  
+  int httpResponseCode = http.POST("");
+  String payload = "";
+  
+  if (httpResponseCode > 0) {
+    Serial.print("HTTP Response code: ");
+    Serial.println(httpResponseCode);
+    payload = http.getString();
+    Serial.println("Response payload: ");
+    Serial.println(payload);
+  } else {
+    Serial.print("Error on sending POST: ");
+    Serial.println(httpResponseCode);
+  }
+
+  http.end();
+  return payload;
+}
+
+// Process booking response from the server
+void processBookingResponse(String response, String uid) {
+  StaticJsonDocument<200> doc;
+  DeserializationError error = deserializeJson(doc, response);
+  if (error) {
+    Serial.print("JSON Deserialization failed: ");
+    Serial.println(error.f_str());
+    displayError("Invalid response");
+    return;
+  }
+
+  bool existingBooking = doc["existingBooking"];
+  bool freeLocker = doc["freeLocker"];
+  int lockerNum = doc["locker"];
+
+  if (existingBooking) {
+    handleExistingBooking(uid);
+  } else if (freeLocker) {
+    displayMessage("Locker booked:", "Locker " + String(lockerNum));
+  } else {
+    displayMessage("No lockers", "available");
+  }
+}
+
+void handleExistingBooking(String userId) {
+  displayMessage("Booking exists.", "Keep or release?");
+  delay(5000);  // Simulate user response wait time
+
+  // Simulate a response from the user (true for keep, false for release)
+  bool userChoice = true; // Replace with actual input mechanism
+
+  String endpoint = userChoice ? "/keepBooking/" : "/cancelBooking/";
+  endpoint += userId;
+  int responseCode = sendUserChoice(endpoint.c_str());  // Convert to const char*
+  
+  Serial.print("User choice response code: ");
+  Serial.println(responseCode);
+  displayMessage(userChoice ? "Booking kept." : "Booking released.", "");
+}
+
+
+// Send user choice to the server
+int sendUserChoice(const char* endpoint) {
+  WiFiClient client;
+  HTTPClient http;
+  http.begin(client, String(server) + endpoint);
+  int responseCode = http.POST("");
+  http.end();
+  return responseCode;
+}
+
+// Display error message on LCD
+void displayError(String message) {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(message);
+}
+
+// Display message on LCD
+void displayMessage(String line1, String line2) {
+  Serial.println("----------------");
+  Serial.println(line1);
+  Serial.println(line2);
+  Serial.println("----------------");
+  Serial.println("");
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(line1);
+  lcd.setCursor(0, 1);
+  lcd.print(line2);
 }
