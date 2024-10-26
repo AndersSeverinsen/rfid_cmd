@@ -1,4 +1,4 @@
-a#include <SPI.h>
+#include <SPI.h>
 #include <MFRC522.h>
 #include <LiquidCrystal_I2C.h>
 
@@ -57,26 +57,32 @@ void loop() {
       for (int i = 0; i < rfid.uid.size; i++) {
         uid += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
         uid += String(rfid.uid.uidByte[i], HEX);
-        }
-
-      Serial.println(uid);
-      if(WiFi.status()== WL_CONNECTED){
-      WiFiClient client;
-      HTTPClient http;
-
-      //Your Domain name with URL path or IP address with path
-      const char* serverName = "http://192.168.27.229:8080/book/{insertuid}";
-      http.begin(client, serverName);
-      int httpResponseCode = http.POST();
-      Serial.print("HTTP Response code: ");
-      Serial.println(httpResponseCode);
-        
-      // Free resources
-      http.end();
-      }else {
-      Serial.println("WiFi Disconnected");
       }
 
+      Serial.println(uid);
+      
+      if(WiFi.status() == WL_CONNECTED){
+        WiFiClient client;
+        HTTPClient http;
+
+        // Create server URL dynamically with the UID
+        String endpoint = "http://192.168.27.229:8080/book/" + uid;
+
+        Serial.print("Sending POST request to: " + endpoint);
+        
+        
+        // Begin the HTTP POST request
+        http.begin(client, endpoint.c_str());
+        int httpResponseCode = http.POST("");
+
+        Serial.print("HTTP Response code: ");
+        Serial.println(httpResponseCode);
+
+        // Free resources
+        http.end();
+      } else {
+        Serial.println("WiFi Disconnected");
+      }
 
       // Display UID on LCD
       lcd.clear();
