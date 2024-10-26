@@ -1,30 +1,22 @@
 #include <SPI.h>
 #include <MFRC522.h>
 #include <LiquidCrystal_I2C.h>
-
 #include <WiFi.h>
 #include <HTTPClient.h>
 
 const char* ssid = "OpenSesame";
 const char* password = "12345678";
 
-// set the LCD number of columns and rows
-int lcdColumns = 16;
-int lcdRows = 2;
-
-// set LCD address, number of columns and rows
-// if you don't know your display address, run an I2C scanner sketch
-LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows);  
-
-#define SS_PIN 5    // ESP32 pin GPIO5
-#define RST_PIN 27  // ESP32 pin GPIO27
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+#define SS_PIN 5    
+#define RST_PIN 27  
 
 MFRC522 rfid(SS_PIN, RST_PIN);
 
 void setup() {
   Serial.begin(9600);
-  SPI.begin();      // init SPI bus
-  rfid.PCD_Init();  // init MFRC522
+  SPI.begin();
+  rfid.PCD_Init();
   lcd.init();       
   lcd.backlight();
   lcd.setCursor(3,0);
@@ -35,64 +27,58 @@ void setup() {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("");
-  Serial.print("Connected to WiFi network with IP Address: ");
-  Serial.println(WiFi.localIP());
-
-  Serial.println("Tap an RFID/NFC tag on the RFID-RC522 reader");
+  Serial.println("\nConnected to WiFi!");
 }
 
 void loop() {
-  if (rfid.PICC_IsNewCardPresent()) {  // new tag is available
-    if (rfid.PICC_ReadCardSerial()) {  // NUID has been read
-      MFRC522::PICC_Type piccType = rfid.PICC_GetType(rfid.uid.sak);
-      Serial.print("RFID/NFC Tag Type: ");
-      Serial.println(rfid.PICC_GetTypeName(piccType));
-
-      // Initialize an empty string for UID
+  if (rfid.PICC_IsNewCardPresent()) {  
+    if (rfid.PICC_ReadCardSerial()) {  
       String uid = "";
-      Serial.print("UID: ");
-      
-      // Append each byte of UID to the string and print to Serial Monitor
       for (int i = 0; i < rfid.uid.size; i++) {
         uid += String(rfid.uid.uidByte[i] < 0x10 ? "0" : "");
         uid += String(rfid.uid.uidByte[i], HEX);
       }
-
-      Serial.println(uid);
       
       if(WiFi.status() == WL_CONNECTED){
         WiFiClient client;
         HTTPClient http;
-
-        // Create server URL dynamically with the UID
-        String endpoint = "http://192.168.27.229:8080/book/" + uid;
-
-        Serial.print("Sending POST request to: " + endpoint);
+        String serverName = "http://192.168.27.229:8080/book/" + uid;
+        http.begin(client, serverName.c_str());
         
-        
-        // Begin the HTTP POST request
-        http.begin(client, endpoint.c_str());
         int httpResponseCode = http.POST("");
+        
+        if (httpResponseCode > 0) {
+          Serial.print("HTTP Response code: ");
+          Serial.println(httpResponseCode);
 
-        Serial.print("HTTP Response code: ");
-        Serial.println(httpResponseCode);
+          String payload = http.getString();
+          Serial.println("Response payload: ");
+          Serial.println(payload);
 
-        // Free resources
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("Server says:");
+          lcd.setCursor(0, 1);
+          lcd.print(payload); 
+          
+        } else {
+          Serial.print("Error on sending POST: ");
+          Serial.println(httpResponseCode);
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("POST failed");
+        }
+
         http.end();
       } else {
         Serial.println("WiFi Disconnected");
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("WiFi lost!");
       }
 
-      // Display UID on LCD
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print("UID:");
-      lcd.setCursor(0, 1);
-      lcd.print(uid);
-
-      rfid.PICC_HaltA();       // halt PICC
-      rfid.PCD_StopCrypto1();  // stop encryption on PCD
+      rfid.PICC_HaltA();       
+      rfid.PCD_StopCrypto1();  
     }
   }
 }
