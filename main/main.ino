@@ -12,6 +12,10 @@ LiquidCrystal_I2C lcd(0x27, 16, 2);
 #define SS_PIN 5    
 #define RST_PIN 27  
 
+
+#define YES_BUTTON_PIN 15  
+#define NO_BUTTON_PIN 13
+
 MFRC522 rfid(SS_PIN, RST_PIN);
 
 // Define endpoints for keeping or releasing the booking
@@ -26,6 +30,10 @@ void setup() {
   lcd.setCursor(3, 0);
   lcd.print("Hello, world!");
   connectWiFi();
+
+    // Set up button pins as input with pull-up resistors
+  pinMode(YES_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(NO_BUTTON_PIN, INPUT_PULLUP);
 }
 
 void loop() {
@@ -124,8 +132,18 @@ void handleExistingBooking(String userId) {
   displayMessage("Booking exists.", "Keep or release?");
   delay(5000);  // Simulate user response wait time
 
-  // Simulate a response from the user (true for keep, false for release)
-  bool userChoice = true; // Replace with actual input mechanism
+  // Wait for button press
+  bool userChoice = false;
+  while (true) {
+    if (digitalRead(YES_BUTTON_PIN) == LOW) {  // If yes button pressed
+      userChoice = true;
+      break;
+    } else if (digitalRead(NO_BUTTON_PIN) == LOW) {  // If no button pressed
+      userChoice = false;
+      break;
+    }
+    delay(50); // Add small delay for debounce
+  }
 
   String endpoint = userChoice ? "/keepBooking/" : "/cancelBooking/";
   endpoint += userId;
